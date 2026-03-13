@@ -1,0 +1,13 @@
+data/
+genome/
+ensembl/
+readCounts/
+*.gz
+*.bam
+*.bai
+*.zip
+*.bed
+*.html
+*_Error.txt
+___All_Errors.txt
+bedfiles.html
