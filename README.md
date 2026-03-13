@@ -1,7 +1,7 @@
 # RNAseq Reads-to-Counts Pipeline
 
 
-### **AutomateSeq** is a reads-to-counts initial processing toolkit for formatting large-scale sequencing data for RNA-seq analysis (e.g. DESeq2, edgeR). This workflow takes raw FASTQ files and produces gene-level read count tables ready for downstream differential expression analysis (e.g. DESeq2, edgeR).
+### **AutomateSeq** is a reads-to-counts initial processing toolkit for formatting large-scale sequencing data for RNA-seq analysis. This workflow takes raw FASTQ files and produces gene-level read count tables ready for downstream differential expression analysis (e.g. DESeq2, edgeR).
 #### Integrates multiple precompiled packages including, fastqc, fastp, hisat2, samtools, featureCounts, and RSeQC.
 
 
