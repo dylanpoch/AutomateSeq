@@ -1,6 +1,9 @@
 # RNAseq Reads-to-Counts Pipeline
 
-Part of the **AutomateSeq** pipeline collection. This workflow takes raw FASTQ files and produces gene-level read count tables ready for downstream differential expression analysis (e.g. DESeq2, edgeR).
+
+## **AutomateSeq** is a reads-to-counts initial processing toolkit for formatting large-scale sequencing data for RNA-seq analysis (e.g. DESeq2, edgeR). This workflow takes raw FASTQ files and produces gene-level read count tables ready for downstream differential expression analysis (e.g. DESeq2, edgeR).
+Integrates multiple precompiled packages including, fastqc, fastp, hisat2, samtools, featureCounts, and RSeQC.
+
 
 ## Pipeline schematic
 
@@ -22,12 +25,10 @@ Choose the script that matches how your library was sequenced. If unsure, check 
 ---
 
 ## Dependencies
-
 Install the following before running:
-
 ```bash
-sudo apt install fastqc trimmomatic hisat2 samtools subread
-pip install RSeQC
+sudo apt install fastqc fastp hisat2 samtools subread
+pip3 install RSeQC --user --break-system-packages
 ```
 
 ---
