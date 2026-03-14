@@ -13,7 +13,7 @@ cd /mnt/d/random/RNASeq/
 
 
 #Make directories:
-mkdir -p genome
+mkdir -p genome/grch38
 mkdir -p ensembl
 mkdir -p readCounts
 
@@ -35,21 +35,28 @@ mkdir -p readCounts
 #source ~/.bashrc
 
 
-#If needed download and extract the human reference genome (grch38)
-#wget https://genome-idx.s3.amazonaws.com/hisat/grch38_genome.tar.gz
-#tar -xzvf grch38_genome.tar.gz -C genome
+#If needed, download reference genomes:
+## --- HISAT2 index ---
+# wget https://ftp.ensembl.org/pub/release-115/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz -P genome/grch38
+# gunzip genome/grch38/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz
+# hisat2-build -p 8 genome/grch38/Homo_sapiens.GRCh38.dna.primary_assembly.fa genome/grch38/genome
+# (adjust -p to available cores)
 
-#If you need to download Ensembl reference genome for featureCounts
-#wget https://ftp.ensembl.org/pub/release-115/gtf/homo_sapiens/Homo_sapiens.GRCh38.115.gtf.gz -P ensembl
-#gzip -d ensembl/Homo_sapiens.GRCh38.115.gtf.gz
+# --- GTF for featureCounts ---
+# wget https://ftp.ensembl.org/pub/release-115/gtf/homo_sapiens/Homo_sapiens.GRCh38.115.gtf.gz -P ensembl
+# gunzip ensembl/Homo_sapiens.GRCh38.115.gtf.gz
 
-#Download bed file
-#wget "https://sourceforge.net/projects/rseqc/files/BED/Human_Homo_sapiens/Homo_sapiens.GRCh38.79.bed.gz/download" -O Homo_sapiens.GRCh38.79.bed.gz
-#gunzip Homo_sapiens.GRCh38.79.bed.gz
-#Change to Ensembl-style chromsomal labeling
-#sed 's/^chr//' Homo_sapiens.GRCh38.79.bed > hg38_nochr.bed
-#mv hg38_nochr.bed genome/hg38.bed
- 
+# --- BED file for RSeQC infer_experiment.py ---
+# Convert r115 GTF to BED (requires UCSC Kent tools above)
+# wget https://ftp.ensembl.org/pub/release-115/gtf/homo_sapiens/Homo_sapiens.GRCh38.115.gtf.gz -P ensembl/bed_tmp
+# gunzip ensembl/bed_tmp/Homo_sapiens.GRCh38.115.gtf.gz
+# gtfToGenePred ensembl/bed_tmp/Homo_sapiens.GRCh38.115.gtf ensembl/bed_tmp/Homo_sapiens.GRCh38.115.genePred
+# genePredToBed ensembl/bed_tmp/Homo_sapiens.GRCh38.115.genePred genome/hg38.bed
+# rm -r ensembl/bed_tmp
+
+# NOTE: All three files use Ensembl-style chromosome naming (1, 2, 3... not chr1, chr2...)
+# No sed chr-stripping step needed — GTF and FASTA are already consistent
+
 
 counter=0
 #For multiple samples (change *_R1.fastq.gz to applicable iterator)
@@ -81,10 +88,15 @@ for sample in data/*_R1.fastq.gz; do
 	echo "Trimmed version of fastqc report saved to data/file_trimmed.fastq"
 
 	#Step 3: Alignment
-	hisat2 -q --rna-strandness R -x genome/grch38/genome -U data/${base}_trimmed.fastq.gz | samtools sort -o data/${base}_trimmed.bam
-	echo "Alignment complete. Saved to:data/${base}_trimmed.bam"
+	# Clean up any leftover temp bam files
+	# Clean up any leftover temp bam files
+	rm -f data/${base}_trimmed.bam.tmp.*.bam
+	# Step 3: Alignment
+	hisat2 -q --rna-strandness RF -x genome/grch38/genome \
+	    -U data/${base}_trimmed.fastq.gz | \
+	    samtools sort -o data/${base}_trimmed.bam
 
-	samtools index data/${base}_trimmed.bam
+		samtools index data/${base}_trimmed.bam
 	#-------------
 	#Check strandedness:
 
@@ -92,7 +104,7 @@ for sample in data/*_R1.fastq.gz; do
 		echo "Checking strandedness for $base..."
 		echo "Note: Only checks first .bam file and assumes all subsequent .bam files have same strandedness"
 
-		infer_experiment.py -r genome/hg38.bed -i data/${base}_trimmed.bam
+		infer_experiment.py -r genome/hg38.bed -i data/${base}_trimmed.bam || true
 
 		echo "-----------------------"
 		echo "Update the -S X in featureCounts below:"
