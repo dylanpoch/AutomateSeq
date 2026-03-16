@@ -1,8 +1,8 @@
 # RNAseq Reads-to-Counts Pipeline
 
 
-### **AutomateSeq** is a reads-to-counts initial processing toolkit for formatting large-scale sequencing data for RNA-seq analysis. This workflow takes raw FASTQ files and produces gene-level read count tables ready for downstream differential expression analysis (e.g. DESeq2, edgeR).
-#### Integrates multiple precompiled packages including, fastqc, fastp, hisat2, samtools, featureCounts, and RSeQC.
+### **AutomateSeq** is a reads-to-counts initial processing toolkit for formatting large-scale sequencing data for RNA-seq analysis. This workflow takes raw FASTQ files and produces gene-level read count tables ready for downstream differential expression analysis (e.g. DESeq2, edgeR). Additionally, a downstream R script for differential expression analysis is included.
+#### Integrates multiple precompiled packages including, fastqc, fastp, hisat2, samtools, featureCounts, RSeQC, and DESeq2.
 
 
 ## Pipeline schematic
@@ -125,3 +125,39 @@ bash MultiRNASeqpipeline_Paired.sh
 ```
 
 Place your raw FASTQ files in a `data/` subdirectory before running. The scripts iterate automatically over all samples matching the expected filename pattern.
+
+
+## Downstream analysis — Differential expression (DESeq2)
+ 
+The `DESeq2_analysis.R` script takes the `readCounts/` output from AutomateSeq and performs differential expression analysis, producing annotated results tables and a volcano plot.
+ 
+### Dependencies
+ 
+```r
+# CRAN
+install.packages(c("tidyverse", "readxl", "pheatmap", "ggplot2", "ggrepel", "writexl"))
+ 
+# Bioconductor
+BiocManager::install(c("DESeq2", "org.Hs.eg.db", "AnnotationDbi"))
+```
+ 
+### Inputs
+ 
+| File | Description |
+|------|-------------|
+| `readCounts/*.txt` | featureCounts output files from AutomateSeq |
+| `metaData.xlsx` | Sample metadata with `id` and `condition` columns |
+
+
+### Steps
+ 
+The script runs the following in order:
+ 
+1. **Load & merge** — reads all featureCounts files and merges them into a single count matrix
+2. **QC** — PCA and sample-correlation heatmap using variance-stabilized counts (`vst`)
+3. **DESeq2** — size factor normalization, dispersion estimation, and Wald test
+4. **LFC shrinkage** — applies `apeglm` shrinkage to stabilize fold-change estimates for low-count genes
+5. **Annotation** — maps Ensembl IDs to HGNC gene symbols via `org.Hs.eg.db`
+6. **Volcano plot** — significant genes colored by direction; top hits labeled by fold-change and adjusted p-value
+7. **Export** — results merged with normalized counts and written to `.xlsx`
+ 
