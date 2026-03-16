@@ -1,0 +1,271 @@
+---
+title: "RNA-Seq Data Analysis using DESeq2"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*.
+
+
+
+```{r}
+# =============================================================================
+# DESeq2 Differential Expression Analysis
+# =============================================================================
+ 
+# --- Install missing packages ------------------------------------------------
+ 
+cran_pkgs <- c("tidyverse", "readxl", "pheatmap", "ggplot2",
+               "ggrepel", "writexl")
+bioc_pkgs <- c("DESeq2", "org.Hs.eg.db", "AnnotationDbi")
+ 
+for (pkg in cran_pkgs) {
+  if (!requireNamespace(pkg, quietly = TRUE))
+    install.packages(pkg)
+}
+ 
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+ 
+for (pkg in bioc_pkgs) {
+  if (!requireNamespace(pkg, quietly = TRUE))
+    BiocManager::install(pkg)
+}
+ 
+# --- Import packages ------------------------------------------------
+library(tidyverse)
+library(readxl)
+library(pheatmap)
+library(ggplot2)
+library(ggrepel)
+library(DESeq2)
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+library(writexl)
+ 
+# --- Config (edit this block per experiment) ----------------------------------
+pathToMeta  <- "D:/random/RNASeq/metaData.xlsx"
+countsDir   <- "D:/random/RNASeq/readCounts/"
+outDir      <- "D:/random/RNASeq/"
+ 
+filePattern <- "_L001_featurecounts\\.txt$"   # regex matching count files
+refLevel    <- "NT"                     # reference level for contrast
+testLevel   <- "ZNF335_KO"
+alpha       <- 0.05                            # padj threshold
+lfcThresh   <- 1                               # log2FC threshold for up/down
+labelLFC    <- log2(5)                        # min |log2FC| for volcano labels
+labelPadj   <- 0.005                           # max padj for volcano labels
+labelPadjAlt <- 1e-200                         # label anything below this padj
+ 
+# Samples to drop (set to NULL if none)
+dropSamples <- c("1_WT_NT_Hela_277_300_S21")  # e.g. outlier from NT control
+ 
+# =============================================================================
+# 1. Load & merge featureCounts files
+# =============================================================================
+ 
+files <- list.files(path = countsDir,
+                    pattern = filePattern,
+                    full.names = TRUE)
+ 
+counts_df <- files %>%
+  map(function(f) {
+    df <- read.table(f, sep = "\t", header = TRUE, skip = 1, comment.char = "#")
+    sample_name <- basename(f) %>% gsub(filePattern, "", .)
+    colnames(df)[ncol(df)] <- sample_name
+    df[, c("Geneid", sample_name)]
+  }) %>%
+  purrr::reduce(full_join, by = "Geneid")
+ 
+rownames(counts_df) <- counts_df$Geneid
+counts_df$Geneid    <- NULL
+ 
+head(counts_df)
+ 
+# =============================================================================
+# 2. Load metadata
+# =============================================================================
+ 
+metaData <- as.data.frame(read_xlsx(pathToMeta))
+rownames(metaData) <- metaData$id
+metaData$id        <- NULL
+ 
+# =============================================================================
+# 3. Remove outlier samples (if any)
+# =============================================================================
+ 
+if (!is.null(dropSamples)) {
+  keep <- !(colnames(counts_df) %in% dropSamples)
+  counts_df <- counts_df[, keep]
+  metaData  <- metaData[colnames(counts_df), , drop = FALSE]
+}
+ 
+# =============================================================================
+# 4. Verify column/row order alignment before building DESeq object
+# =============================================================================
+ 
+stopifnot(all(rownames(metaData) == colnames(counts_df)))
+ 
+# If the above fails, reorder:
+# counts_df <- counts_df[, rownames(metaData)]
+ 
+# =============================================================================
+# 5. Build DESeqDataSet & normalize
+# =============================================================================
+ 
+dds <- DESeqDataSetFromMatrix(countData = counts_df,
+                              colData   = metaData,
+                              design    = ~ condition)
+ 
+dds <- estimateSizeFactors(dds)
+
+#Keep only genes with >= 10 counts
+keep <- rowSums(counts(dds)) >= 10; dds <- dds[keep, ]
+
+norm_counts            <- as.data.frame(counts(dds, normalized = TRUE))
+norm_counts$ensembl_id <- rownames(norm_counts)
+ 
+# =============================================================================
+# 6. QC: PCA & sample-correlation heatmap
+# =============================================================================
+ 
+vsd <- vst(dds, blind = TRUE)
+ 
+plotPCA(vsd, intgroup = "condition")
+ 
+vsd_cor       <- cor(assay(vsd))
+annotation_df <- data.frame(condition = metaData$condition,
+                             row.names = rownames(metaData))
+ 
+pheatmap(vsd_cor, annotation_col = annotation_df)
+ 
+# =============================================================================
+# 7. Run DESeq2
+# =============================================================================
+ 
+dds$condition <- relevel(dds$condition, ref = refLevel)
+dds           <- DESeq(dds)
+ 
+resultsNames(dds)
+plotDispEsts(dds)
+ 
+# =============================================================================
+# 8. Extract & shrink results
+# =============================================================================
+ 
+coef_name <- paste0("condition_", testLevel, "_vs_", refLevel)  # first non-intercept coefficient
+message("Using coefficient: ", coef_name)
+ 
+results_raw <- results(dds, name = coef_name, alpha = alpha)
+ 
+results_shr <- lfcShrink(dds,
+                          coef = coef_name,
+                          res  = results_raw,
+                          type = "apeglm")
+summary(results_shr)
+ 
+# =============================================================================
+# 9. Annotate results
+# =============================================================================
+ 
+results_df <- as.data.frame(results_shr)
+results_df <- results_df[!is.na(results_df$padj), ]
+results_df$ensembl_id <- rownames(results_df)
+ 
+results_df$gene_name <- mapIds(org.Hs.eg.db,
+                                keys      = results_df$ensembl_id,
+                                column    = "SYMBOL",
+                                keytype   = "ENSEMBL",
+                                multiVals = "first")
+ 
+results_df <- results_df %>%
+  mutate(
+    direction = case_when(
+      padj < alpha & log2FoldChange >  lfcThresh ~ "up",
+      padj < alpha & log2FoldChange < -lfcThresh ~ "down",
+      TRUE                                        ~ "ns"
+    ),
+    label = ifelse(
+      (abs(log2FoldChange) >= labelLFC & padj < labelPadj) | padj < labelPadjAlt,
+      gene_name,
+      NA_character_
+    )
+  )
+
+results_df$padj <- pmax(results_df$padj, 1e-300)
+# =============================================================================
+# 10. Volcano plot
+# =============================================================================
+ 
+sig_colors <- c("up" = "#185FA5", "down" = "#993C1D", "ns" = "grey70")
+ 
+vp <- ggplot(results_df,
+             aes(x = log2FoldChange, y = -log10(padj), color = direction)) +
+  geom_hline(yintercept = -log10(alpha), linetype = "dashed",
+             color = "grey60", linewidth = 0.5) +
+  geom_vline(xintercept = c(-lfcThresh, lfcThresh), linetype = "dashed",
+             color = "grey60", linewidth = 0.5) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_text_repel(
+    aes(label = label),
+    size          = 2.8,
+    max.overlaps  = 100,
+    box.padding   = 0.4,
+    segment.color = "grey60",
+    segment.size  = 0.3,
+    na.rm         = TRUE,
+    show.legend   = FALSE,
+    color = "black"
+  ) +
+  scale_color_manual(values = sig_colors) +
+  scale_x_continuous(expand = expansion(mult = 0.05)) +
+  scale_y_continuous(expand = expansion(mult = c(0.02, 0.05))) +
+  labs(
+    x     = expression(log[2]~"Fold Change"),
+    y     = expression(-log[10]~"Adj. p-value"),
+    color = NULL
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    panel.grid.major    = element_line(color = "grey92", linewidth = 0.4),
+    panel.grid.minor    = element_blank(),
+    panel.border        = element_rect(color = "grey80", linewidth = 0.6),
+    axis.title          = element_text(size = 13, color = "grey30"),
+    axis.text           = element_text(size = 10, color = "grey40"),
+    legend.position     = "top",
+    legend.justification = "left",
+    legend.text         = element_text(size = 10),
+    plot.margin         = margin(10, 15, 10, 10)
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 3, alpha = 1)))
+ 
+print(vp)
+ 
+# Spot-checks
+results_df[!is.na(results_df$label), c("gene_name", "log2FoldChange", "padj")]
+ 
+# =============================================================================
+# 11. Export
+# =============================================================================
+ 
+# Derive contrast name from coefficient for output filenames
+contrastTag <- gsub("^condition_", "", coef_name)
+ 
+results_export <- results_df %>%
+  filter(!is.na(gene_name)) %>%
+  dplyr::select(-label) %>%
+  merge(norm_counts, by = "ensembl_id")
+ 
+write_xlsx(results_export,
+           file.path(outDir, paste0("final_", contrastTag, ".xlsx")))
+ 
+ggsave(
+  filename = file.path(outDir, paste0("volcano_plot_", contrastTag, ".pdf")),
+  plot     = vp,
+  device   = cairo_pdf,
+  width    = 7,
+  height   = 6,
+  units    = "in"
+)
+```

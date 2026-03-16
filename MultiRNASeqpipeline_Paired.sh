@@ -10,6 +10,7 @@ set -o pipefail
 # ============================================================
 # PREFLIGHT CHECKS
 # ============================================================
+#Check to see if all dependencies are installed. If not, exit and install first:
 
 echo "Running preflight checks..."
 PREFLIGHT_FAILED=0
@@ -77,7 +78,6 @@ mkdir -p ensembl
 mkdir -p readCounts
 
 
-#Check to see if all dependencies are installed. If not, exit and install first:
 
 
 #Step 0: Prepare and install all required dependencies:
@@ -121,9 +121,6 @@ mkdir -p readCounts
 # gtfToGenePred ensembl/bed_tmp/Homo_sapiens.GRCh38.115.gtf ensembl/bed_tmp/Homo_sapiens.GRCh38.115.genePred
 # genePredToBed ensembl/bed_tmp/Homo_sapiens.GRCh38.115.genePred genome/hg38.bed
 # rm -r ensembl/bed_tmp
-
-# NOTE: All three files use Ensembl-style chromosome naming (1, 2, 3... not chr1, chr2...)
-# No sed chr-stripping step needed — GTF and FASTA are already consistent
 
  
 counter=0

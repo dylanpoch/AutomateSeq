@@ -11,3 +11,5 @@ readCounts/
 *_Error.txt
 ___All_Errors.txt
 bedfiles.html
+*.xlsx
+*.pdf
